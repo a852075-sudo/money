@@ -68,12 +68,11 @@
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
-    // --- PWA Setup ---
-    // 優先使用您上傳的客製化 icon.png 作為 App 圖標
+    // 優先使用客製化 icon.png 作為 App 圖標
     const manifestData = {
       name: "旅記 - 智慧旅遊記帳",
       short_name: "旅記",
-      description: "海外與台灣旅遊智慧記帳，內建 AI 相機發票辨識與台日雙幣即時換算。",
+      description: "海外與台灣旅遊智慧記帳，內建 AI 高清相機發票辨識與台日雙幣即時換算。",
       start_url: ".",
       display: "standalone",
       background_color: "#030712",
@@ -97,10 +96,10 @@
     const manifestURL = URL.createObjectURL(manifestBlob);
     document.getElementById('manifest-link').setAttribute('href', manifestURL);
 
-    // Inline Service Worker Setup
+    // Inline Service Worker Setup for offline cache capabilities
     if ('serviceWorker' in navigator) {
       const swCode = `
-        const CACHE_NAME = 'travel-tracker-v2';
+        const CACHE_NAME = 'travel-tracker-v3';
         const ASSETS = [
           '/',
           window.location.href
@@ -120,7 +119,6 @@
 
     // --- Main React App ---
     function App() {
-      // States
       const [activeTab, setActiveTab] = useState('add');
       const [records, setRecords] = useState([]);
       const [rate, setRate] = useState(0.215); 
@@ -240,14 +238,18 @@
         setTimeout(() => setNotification(null), 3000);
       };
 
-      // --- CAMERA SCAN & AI RECOGNITION (Gemini API) ---
+      // 調整為 1080p 解析度，以確保發票上的小字體清晰可辨
       const startCamera = async () => {
         setShowCamera(true);
         setCameraLoading(true);
-        setScanStatus('正在啟動相機...');
+        setScanStatus('正在啟動高解析度相機...');
         try {
           const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+            video: { 
+              facingMode: 'environment', 
+              width: { ideal: 1920, min: 1280 }, 
+              height: { ideal: 1080, min: 720 } 
+            },
             audio: false
           });
           if (videoRef.current) {
@@ -255,12 +257,12 @@
             videoRef.current.onloadedmetadata = () => {
               videoRef.current.play();
               setCameraLoading(false);
-              setScanStatus('相機就緒，請對準發票明細或店家標誌');
+              setScanStatus('相機就緒，請將發票置於對焦框中央，並保持穩定。建議光線充足。');
             };
           }
         } catch (err) {
           console.error("Camera access failed", err);
-          showNotification("無法存取相機，請檢查瀏覽器權限", "error");
+          showNotification("無法存取相機，請檢查瀏覽器權限或確認是否為安全連線 (HTTPS)", "error");
           setShowCamera(false);
           setCameraLoading(false);
         }
@@ -277,36 +279,65 @@
       const captureAndRecognize = async () => {
         if (!videoRef.current || !canvasRef.current) return;
         setCameraLoading(true);
-        setScanStatus('正在拍攝照片並壓縮...');
+        setScanStatus('正在擷取高畫質發票影像並進行優化...');
 
         const video = videoRef.current;
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d');
 
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        // 使用物理相機的最大可用像素進行圖像擷取
+        const width = video.videoWidth || 1920;
+        const height = video.videoHeight || 1080;
+        canvas.width = width;
+        canvas.height = height;
 
-        const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+        // 啟用圖像平滑化處理
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(video, 0, 0, width, height);
+
+        // 使用高達 0.95 的品質進行 JPEG 編碼，防止小字被壓縮壓縮掉
+        const base64Image = canvas.toDataURL('image/jpeg', 0.95).split(',')[1];
         
         stopCamera();
-        setScanStatus('AI 正在光學辨識發票中，請稍候...');
+        setScanStatus('AI 專家正在精準辨識台灣/日本發票中，請稍候...');
         setCameraLoading(true);
 
         try {
-          // 優化後的 Prompt，特別加入對台灣電子發票、店家名稱自動帶入的支援
-          const prompt = `你是一個專業的日本與台灣旅遊記帳助手。請仔細辨識發票/收據（包含台灣電子發票、傳統發票、超商收據、日本領収書或レシート）或商品照片，並提取以下資訊：
-          1. 交易時間 (格式必須為: YYYY-MM-DD HH:mm，如果發票上沒有年份，請預設使用今年2026年)
-          2. 消費項目/商品名稱 (核心要求：必須辨識並自動帶入「店家/商戶名稱」，例如 7-11、全家、麥當勞、星巴克等。若有購買具體品項，請將店家與品項合併，如「7-11 - 拿鐵咖啡與飯糰」；若無具體品項，可直接帶入店家名稱，如「7-11」)
-          3. 最終消費總金額 (純數字，請精確提取，排除發票號碼、統一編號等干擾數字)
-          4. 幣別 (必須是 'JPY' 或 'TWD')
-          5. 最符合的消費分類，請限制在以下幾種之一：'餐飲', '交通', '購物', '住宿', '門票', '其他'。
+          // 強化的台灣與日本發票專用辨識提示詞 (Prompt)
+          const prompt = `你是一個極度精確的台灣與日本發票/收據 OCR 辨識記帳專家。請仔細分析這張圖片（電子發票證明聯、收銀機發票、載具明細、日本領収書或レシート），並精確提取以下資訊：
 
-          請只返回一個合法的 JSON 對象，不要包含任何 markdown 標籤，範例如下：
+          1. 【交易時間】：
+             - 格式必須為 "YYYY-MM-DD HH:mm"。
+             - 台灣發票常使用民國年份（例如 中華民國115年、115年05-06月），你必須將民國年轉換為西元年（例如 民國115年 應轉換為 西元2026年）。
+             - 如果發票上只有月份和日期（例如 06/19），請預設使用今年 2026 年。
+
+          2. 【店家與消費品項】：
+             - 核心要求：你必須尋找「店家名稱/商戶品牌」（例如：7-11、全家便利商店、萊爾富、全聯福利中心、家樂福、星巴克、麥當勞，或任何發票章、招牌上的中英文店名）。
+             - 如果有具體購買明細，請將店家與主要品項合併，格式為「店家名稱 - 主要品項名稱」（例如：「7-11 - 冰拿鐵與御飯糰」）。
+             - 如果發票較模糊無法看清具體細項，或只有大額消費，請直接填入店家名稱（例如：「全聯福利中心」）。
+
+          3. 【最終實際消費總金額】：
+             - 必須是最後實際付出的「總金額」（純數字）。
+             - 【防錯指引】：請絕對不要把以下數字誤認為總金額：
+               * 發票號碼（例如：AB-12345678）
+               * 隨機碼（4位數數字）
+               * 統一編號（買受人或店家的8位數統編，例如：84123456）
+               * 課稅別、銷售額、稅額、找零、應退金額（通常較小）
+               * 條碼下方的隨機編號。
+             - 請仔細尋找「總計」、「應付金額」、「實收」、「合計」、「TOTAL」、「應付總額」旁邊對應的最終付款數字。
+
+          4. 【幣別】：
+             - 台灣發票/明細請一律帶入 "TWD"。日本發票帶入 "JPY"。
+
+          5. 【消費分類】：
+             - 根據品項或店名，限制在以下幾種之一：'餐飲', '交通', '購物', '住宿', '門票', '其他'。
+
+          請僅返回一個乾淨、合法的 JSON 對象，不要包含任何 markdown 標籤（如 \`\`\`json ），範例如下：
           {
             "time": "2026-06-19 14:30",
-            "item": "7-11 - 冰美式咖啡",
-            "amount": 45,
+            "item": "7-11 - 冰美式咖啡與麵包",
+            "amount": 85,
             "currency": "TWD",
             "category": "餐飲"
           }`;
@@ -317,7 +348,8 @@
           let delay = 1000;
 
           const targetKey = apiKey || ""; 
-          const apiURL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${targetKey}`;
+          // 升級至最適合圖像解讀與 OCR 辨識的最新 gemini-3-flash-preview 模型
+          const apiURL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${targetKey}`;
 
           for (let attempt = 1; attempt <= retries; attempt++) {
             try {
@@ -366,14 +398,14 @@
               category: aiData.category || '其他'
             });
 
-            showNotification('AI 辨識成功！請核對後按下新增。', 'success');
+            showNotification('AI 辨識成功！請核對確認後點擊新增。', 'success');
           } else {
             throw new Error('未取得有效辨識結果');
           }
 
         } catch (err) {
           console.error(err);
-          showNotification('辨識失敗：' + (apiKey ? '請確保照片清晰且是發票收據。' : '未設定有效 API 金鑰，請至設定分頁填寫。'), 'error');
+          showNotification('辨識失敗：' + (apiKey ? '請確保光線充足，並將發票中的品項與總金額對焦清晰。' : '未設定有效 API 金鑰，請至設定分頁填寫。'), 'error');
         } finally {
           setCameraLoading(false);
           setScanStatus('');
@@ -421,7 +453,7 @@
               </div>
               <div>
                 <h1 className="text-lg font-bold tracking-tight bg-gradient-to-r from-brand-400 to-amber-400 bg-clip-text text-transparent">旅記</h1>
-                <p className="text-xs text-slate-400">日本/海外/台灣旅遊記帳</p>
+                <p className="text-xs text-slate-400">台灣/日本旅遊智慧記帳</p>
               </div>
             </div>
 
@@ -438,7 +470,7 @@
               {isInstalled && (
                 <span className="text-[10px] bg-slate-800 text-slate-400 border border-slate-700 px-2 py-1 rounded-full flex items-center space-x-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
-                  <span>已安裝</span>
+                  <span>已安裝 PWA</span>
                 </span>
               )}
             </div>
@@ -485,17 +517,18 @@
             </div>
           </div>
 
+          {}
           {/* Camera Scan Overlay Screen */}
           {showCamera && (
             <div className="fixed inset-0 bg-black z-50 flex flex-col justify-between p-4">
               <div className="flex justify-between items-center z-10">
-                <h3 className="text-base font-bold text-white"><i className="fa-solid fa-wand-magic-sparkles text-amber-400 mr-1"></i> AI 智慧發票辨識</h3>
+                <h3 className="text-base font-bold text-white"><i className="fa-solid fa-wand-magic-sparkles text-amber-400 mr-1"></i> AI 智慧發票辨識 (台灣/日本)</h3>
                 <button onClick={stopCamera} className="w-10 h-10 bg-slate-900/80 rounded-full flex items-center justify-center text-slate-400 hover:text-white">
                   <i className="fa-solid fa-xmark"></i>
                 </button>
               </div>
 
-              {/* Viewfinder */}
+              {/* Viewfinder with precise alignment guide */}
               <div className="relative w-full aspect-[3/4] bg-slate-900 rounded-2xl overflow-hidden shadow-inner flex items-center justify-center border-2 border-dashed border-slate-700">
                 <video ref={videoRef} playsInline className="absolute inset-0 w-full h-full object-cover"></video>
                 <canvas ref={canvasRef} className="hidden"></canvas>
@@ -507,7 +540,7 @@
                     <div className="w-4 h-4 border-t-2 border-r-2 border-amber-400"></div>
                   </div>
                   <div className="text-center bg-slate-950/80 backdrop-blur-sm py-1.5 px-3 rounded text-xs text-amber-300">
-                    請對準發票明細、電子發票或商品
+                    請對準發票品項明細與最終總金額
                   </div>
                   <div className="flex justify-between">
                     <div className="w-4 h-4 border-b-2 border-l-2 border-amber-400"></div>
@@ -518,7 +551,7 @@
                 {cameraLoading && (
                   <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center p-4">
                     <div className="w-12 h-12 border-4 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
-                    <p className="mt-4 text-sm font-semibold text-slate-200 text-center">{scanStatus}</p>
+                    <p className="mt-4 text-sm font-semibold text-slate-200 text-center px-4">{scanStatus}</p>
                   </div>
                 )}
               </div>
@@ -534,7 +567,7 @@
                     <i className="fa-solid fa-camera text-white text-xl"></i>
                   </div>
                 </button>
-                <span className="text-xs text-slate-400">點擊按鈕拍照並開始 AI 辨識</span>
+                <span className="text-xs text-slate-400">點擊按鈕拍照並開始 AI 高精度辨識</span>
               </div>
             </div>
           )}
@@ -552,7 +585,7 @@
                     </div>
                     <div>
                       <h3 className="text-sm font-bold text-slate-200">免手動輸入！AI 辨識發票</h3>
-                      <p className="text-xs text-slate-400">支援日台發票、超商自動帶入店家品項</p>
+                      <p className="text-xs text-slate-400">支援日台發票、超商自動帶入店家與品項</p>
                     </div>
                   </div>
                   <button 
@@ -612,7 +645,7 @@
                     <label className="text-xs text-slate-400 block mb-1 font-medium">物品/店家/項目名稱</label>
                     <input 
                       type="text" 
-                      placeholder="例如：7-11、拉麵、藥妝、新幹線..."
+                      placeholder="例如：7-11 - 美式咖啡、拉麵、藥妝、新幹線..."
                       required
                       value={formData.item}
                       onChange={(e) => setFormData(prev => ({ ...prev, item: e.target.value }))}
@@ -755,6 +788,7 @@
               </div>
             )}
 
+            {}
             {/* TAB 3: STATS / ANALYSIS */}
             {activeTab === 'stats' && (
               <div className="space-y-4">
