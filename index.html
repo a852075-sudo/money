@@ -70,24 +70,25 @@
 
     // PWA Manifest 資料 - 同步更新為 icon_5.png
     const manifestData = {
-      name: "旅記 - 智慧本地記帳",
-      short_name: "旅記",
-      description: "海外與台灣旅遊智慧記帳，本地相機發票自動字元辨識與台日雙幣即時換算。",
-      start_url: ".",
-      display: "standalone",
-      background_color: "#030712",
-      theme_color: "#4f46e5",
-      icons: [
-        {
-          src: "icon_5.png",
-          sizes: "512x512",
-          type: "image/png"
-        },
-        {
-          src: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%234f46e5'/><path d='M35 35h30v30H35z' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='8' fill='%23f59e0b'/><path d='M30 30 L45 20 L55 20 L70 30' fill='none' stroke='white' stroke-width='4'/></svg>",
-          sizes: "512x512",
-          type: "image/svg+xml",
-          purpose: "any maskable"
+  name: "旅記 - 智慧本地記帳",
+  short_name: "旅記",
+  description: "海外與台灣旅遊智慧記帳，本地相機發票自動字元辨識與台日雙幣即時換算。",
+  start_url: ".",
+  display: "standalone",
+  background_color: "#030712",
+  theme_color: "#4f46e5",
+  icons: [
+    {
+      // 在這裡加上 ?v=2，這樣系統就會強制重新載入圖標
+      src: "icon_5.png?v=2", 
+      sizes: "512x512",
+      type: "image/png"
+    },
+    {
+      src: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%234f46e5'/><path d='M35 35h30v30H35z' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='8' fill='%23f59e0b'/><path d='M30 30 L45 20 L55 20 L70 30' fill='none' stroke='white' stroke-width='4'/></svg>",
+      sizes: "512x512",
+      type: "image/svg+xml",
+      purpose: "any maskable"
         }
       ]
     };
